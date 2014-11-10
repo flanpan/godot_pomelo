@@ -27,6 +27,8 @@ var packageSize = 0
 var packageBuffer = RawArray()
 var state = ST_HEAD
 var headBuffer = RawArray()
+var lastServerTick = OS.get_ticks_msec()
+var lastClientTick = OS.get_ticks_msec()
 
 var routeMap = {}
 var handshakeBuffer = {
@@ -88,6 +90,7 @@ func _process(delta):
 	var connected = socket.is_connected()
 	if(not connected):
 		return
+	#var obj = package.encode(package.TYPE_HEARTBEAT)
 	var output = socket.get_partial_data(1024)
 	var errCode = output[0]
 	var outputData = output[1]
@@ -153,7 +156,7 @@ func _readBody(data,offset):
 	packageOffset += len
 	if packageOffset == packageSize:
 		var buffer = packageBuffer
-		_onData(buffer)
+		_onmessage(buffer)
 		_reset()
 	return dend
 
@@ -196,7 +199,11 @@ func _encode(reqId,route,msg):
 	return message.encode(reqId,type,compressRoute,route,msg)
 
 func _heartbeat():
-	pass
+	if not heartbeatInterval:
+		return
+	lastServerTick = OS.get_ticks_msec()
+	
+	
 
 
 func _onopen():

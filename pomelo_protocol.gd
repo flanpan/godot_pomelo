@@ -55,8 +55,8 @@ class Package:
 			offset += 1
 			length |= bytes[offset]
 			offset += 1
-			length = length >> 0 # 无符号右移 >>>
-			
+			#length = length >> 0 # 无符号右移 >>>
+			length = abs(length) >> 0
 			var body = null
 			if length:
 				body = RawArray()

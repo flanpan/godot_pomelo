@@ -18,6 +18,12 @@ class Decoder:
 	func decode(key,msg):
 		pass
 
+class Codec:
+	var buffer = RawArray()
+	
+	func _init():
+		buffer.resize(8)
+
 var encoder = Encoder.new()
 var decoder = Decoder.new()
 
