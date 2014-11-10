@@ -56,6 +56,7 @@ class Package:
 			length |= bytes[offset]
 			offset += 1
 			length = length >> 0 # 无符号右移 >>>
+			
 			var body = null
 			if length:
 				body = RawArray()
@@ -75,14 +76,93 @@ class Message:
 	const TYPE_NOTIFY = 1
 	const TYPE_RESPONSE = 2
 	const TYPE_PUSH = 3
+	var _parent
+	
+	func _init(parent):
+		_parent = parent
+	
 	func encode(id,type,compressRoute,route,msg):
-		pass
+		var idBytes
+		if _parent._msgHasId(type):
+			idBytes = _parent._caculateMsgIdBytes(id)
+		else:
+			idBytes = 0
+		var msgLen = _parent.MSG_FLAG_BYTES + idBytes
+		if _parent._msgHasRoute(type):
+			if compressRoute:
+				#if route is not number ,error
+				msgLen += _parent.MSG_ROUTE_CODE_BYTES
+			else:
+				msgLen += _parent.MSG_ROUTE_LEN_BYTES
+				if route:
+					route = _parent.strencode(route)
+					if route.length > 255:
+						return print("route maxLength is overflow.")
+					msgLen += route.length
+		if msg:
+			msgLen += msg.size()
+		var buffer = RawArray()
+		buffer.resize(msgLen)
+		var offset = 0
+		offset = _parent._encodeMsgFlag(type,compressRoute,buffer,offset)
+		if _parent._msgHasId(type):
+			offset = _parent._encodeMsgId(id,buffer,offset)
+		if _parent._msgHasRoute(type):
+			offset = _parent._encodeMsgRoute(compressRoute,route,buffer,offset)
+		if msg:
+			offset = _parent._encodeMsgBody(msg,buffer,offset)
+		return buffer
+
 	func decode(buffer):
-		pass
+		var bytes = RawArray(buffer)
+		var bytesLen = bytes.size()
+		var offset = 0
+		var id = 0
+		var route = null
+		var flag = bytes[offset]
+		offset += 1
+		var compressRoute = flag & _parent.MSG_COMPRESS_ROUTE_MASK
+		var type = (flag >> 1) & _parent.MSG_TYPE_MASK
+		if _parent.msgHasId(type):
+			var m = int(bytes[offset])
+			var i = 0
+			
+			m = int(bytes[offset])
+			id = id + ((m & 0x7f) * pow(2,(7*i)))
+			offset += 1
+			i += 1
+			while m>= 128:
+				m = int(bytes[offset])
+				id = id + ((m & 0x7f) * pow(2,(7*i)))
+				offset += 1
+				i += 1
+		if _parent._msgHasRoute(type):
+			if _parent._msgHasRoute(type):
+				if compressRoute:
+					route = (bytes[offset]) << 8
+					offset += 1
+					route |= bytes[offset]
+					offset += 1
+				else:
+					var routeLen = bytes[offset]
+					offset += 1
+					if routeLen:
+						route = RawArray()
+						route.resize(routeLen)
+						_parent._copyArray(route,0,bytes,offset,routeLen)
+						route = _parent.strdecode(route)
+					else:
+						route = ""
+					offset += routeLen
+		var bodyLen = bytesLen - offset
+		var body = RawArray()
+		body.resize(bodyLen)
+		_parent._copyArray(body,0,bytes,offset,bodyLen)
+		return {"id":id,"type":type,"compressRoute":compressRoute,"route":route,"body":body}
 
 ###########
 var package = Package.new(self)
-var message = Message.new()
+var message = Message.new(self)
 
 func _copyArray(dest,doffset,src,soffset,length):
 	for i in range(length):

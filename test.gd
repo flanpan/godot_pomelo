@@ -4,6 +4,11 @@ export(int) var port = 10000
 
 var pomelo
 
+
+class AAA:
+	func _init():
+		print(port)
+
 func _ready():
 	pomelo = get_node("/root/pomelo")
 	#print(pomelo)
@@ -15,6 +20,8 @@ func _ready():
 	a.push_back(97)
 	var b = RawArray(a)
 	print(b.get_string_from_utf8())
+	
+	var aaa = AAA.new()
 
 func _on_Button_pressed():
 	set_text(get_text()+"a")
