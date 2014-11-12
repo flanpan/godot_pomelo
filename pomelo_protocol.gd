@@ -33,7 +33,7 @@ class Package:
 			for i in range(body.size()):
 				buffer.push_back(body.get(i))
 	
-	func encode(type,body):
+	func encode(type,body=null):
 		var length 
 		if body != null:
 			length = body.size()
@@ -111,11 +111,11 @@ class Message:
 				msgLen += _parent.MSG_ROUTE_LEN_BYTES
 				if route:
 					route = _parent.strencode(route)
-					if route.length > 255:
+					if route.size() > 255:
 						return print("route maxLength is overflow.")
-					msgLen += route.length
+					msgLen += route.size()
 		if msg:
-			msgLen += msg.size()
+			msgLen += msg.length()
 		var buffer = RawArray()
 		buffer.resize(msgLen)
 		var offset = 0
@@ -125,7 +125,10 @@ class Message:
 		if _parent._msgHasRoute(type):
 			offset = _parent._encodeMsgRoute(compressRoute,route,buffer,offset)
 		if msg:
-			offset = _parent._encodeMsgBody(msg,buffer,offset)
+			# encode msg body
+			for i in range(msg.length()):
+				buffer[offset+i] = msg.ord_at(i)
+			offset += msg.length()
 		return buffer
 
 	func decode(buffer):
@@ -243,39 +246,14 @@ func _encodeMsgRoute(compressRoute,route,buffer,offset):
 		buffer[offset] = route & 0xff
 		offset +=1
 	else:
-		if route:
-			buffer[offset] = route.lenth & 0xff
-			buffer = _copyArray(buffer,offset,route,0,route.length)
-			offset += route.length
+		if route != null:
+			buffer[offset] = route.size() & 0xff
+			buffer = _copyArray(buffer,offset,route,0,route.size())
+			offset += route.size()
 		else:
 			buffer[offset] = 0
 			offset += 1
 	return offset
-
-func _encodeMsgBody(msg,buffer,offset):
-	buffer = _copyArray(buffer,offset,msg,0,msg.size())
-	return offset + msg.size()
-
-func strencode_old(s):
-	var byteArray = RawArray()
-	byteArray.resize(s.length() *3)
-	var offset = 0
-	for i in range(s.length()):
-		var charCode = s.ord_at(i)
-		var codes = null
-		if charCode <= 0x7f:#127
-			codes = [charCode]
-		elif charCode <= 0x7ff:#2047
-			codes = [0xc0|(charCode>>6),0x80|(charCode & 0x3f)]
-		else:
-			codes = [0xe0|(charCode>>12),0x80|((charCode & 0xfc0)>>6), 0x80|(charCode & 0x3f)]
-		for j in range(codes.size()):
-			byteArray[offset] = codes[j]
-			offset += 1
-	var _buffer = RawArray()
-	_buffer.resize(offset)
-	_buffer = _copyArray(_buffer,0,byteArray,0,offset)
-	return _buffer
 
 func strencode(s):
 	var raw = RawArray()

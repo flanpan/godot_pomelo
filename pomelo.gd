@@ -7,7 +7,7 @@ var protocol = load("res://pomelo_protocol.gd").new()
 var package = protocol.package
 var message = protocol.message
 var heartbeatInterval = 1000
-var heartbeatTimeout = 0
+var heartbeatTimeout = 2000
 var gapThreshold = 100
 var protoVersion
 var clientProtos
@@ -50,12 +50,8 @@ var routes = {}
 const ERR = 1
 var data
 
-func _init():
-	print("init pomelo")
-	headBuffer.resize(4)
-
-
 func _ready():
+	headBuffer.resize(4)
 	var err = localStorage.load("res://user_config.cfg")
 	if err:
 		return print("load user config error. code:",err)
@@ -70,18 +66,21 @@ func _process(delta):
 	if(not connected):
 		return
 	if (OS.get_ticks_msec() - lastServerTick) > (heartbeatInterval+gapThreshold):
-		print("server heartbeat timeout")
-		emit_signal("heartbeat timeout")
-		return disconnect()
+		#print("server heartbeat timeout")
+		#emit_signal("heartbeat timeout")
+		#return disconnect()
+		pass
 	
 	if(OS.get_ticks_msec() - lastClientTick >= heartbeatInterval):
-		var obj = package.encode(package.TYPE_HEARTBEAT)
-		_send(obj)
+		#print("client heart beat.")
+		#var obj = package.encode(package.TYPE_HEARTBEAT)
+		#_send(obj)
+		pass
 	
 	var output = socket.get_partial_data(1024)
 	var errCode = output[0]
 	var outputData = output[1]
-	print(output)
+	#print(output)
 	if(errCode != 0):
 		return print( "receive ErrCode:" + str(errCode), ERR)
 	#var outStr = outputData.get_string_from_utf8()
@@ -109,7 +108,7 @@ func _getBodySize():
 	for i in [1,2,3]:
 		if i>1:
 			len <<= 8
-		print(i,headBuffer.size())
+		#print(i,headBuffer.size())
 		len += headBuffer.get(i)#headBuffer.readUInt8(i)
 	return len
 
@@ -122,7 +121,7 @@ func _readHead(data,offset):
 	#data.copy(headBuffer,headOffset,offset,dend)
 	for i in range(len):
 		headBuffer.set(headOffset+i,data.get(offset+i))
-		print("set head buffer",headOffset+i,data.get(offset+i))
+		#print("set head buffer",headOffset+i,data.get(offset+i))
 	headOffset += len
 	if headOffset == headSize:
 		var size = _getBodySize()
@@ -134,6 +133,7 @@ func _readHead(data,offset):
 		packageBuffer.resize(packageSize)
 		for i in range(headSize):
 			packageBuffer.set(i,headBuffer.get(i))
+		packageOffset = headSize
 		state = ST_BODY
 	return dend
 
@@ -147,6 +147,7 @@ func _readBody(data,offset):
 	for i in range(len):
 		packageBuffer.set(packageOffset+i,data.get(offset+i))
 	packageOffset += len
+	print("packageoffset:",packageOffset,"packageSize:",packageSize)
 	if packageOffset == packageSize:
 		var buffer = packageBuffer
 		_onmessage(buffer)
@@ -176,27 +177,19 @@ func _decode(data):
 		routeMap.erase(msg.id)
 		if not msg.route:
 			return
-	msg.body = _deCompose(msg)
-	return msg
-
-func _encode(reqId,route,msg):
-	var type
-	if reqId:
-		type = message.TYPE_REQUEST
+	#msg.body = _deCompose(msg)
+	var route = msg.route
+	if msg.compressRoute:
+		if not abbrs[route]:
+			return {}
+		route = abbrs[route]
+		msg.route = abbrs[route]
+	if serverProtos and serverProtos[route]:
+		msg.body = protobuf.decode(route,msg.body)
 	else:
-		type = message.TYPE_NOTIFY
-	var compressRoute = 0
-	if _dict and _dict[route]:
-		route = _dict[route]
-		compressRoute = 1
-	return message.encode(reqId,type,compressRoute,route,msg)
-
-func _heartbeat():
-	if not heartbeatInterval:
-		return
-	#lastServerTick = OS.get_ticks_msec()
-	
-	
+		var tmp = {}
+		msg.body = tmp.parse_json(protocol.strdecode(msg.body))
+	return msg
 
 
 func _onopen():
@@ -222,9 +215,11 @@ func _onclose():
 	emit_signal("close")
 	emit_signal("disconnect")
 	print("socket close.")
-
-
-func _initSocket(host,port):
+	
+func init(host, port):
+	print("pomelo init")
+	#user 数据
+	#return _initSocket(host,port)
 	print("connect to %s:%d",host,port)
 	if(localStorage.get_value("pomelo","protos") and protoVersion==0):
 		var protos = {}.parse_json(localStorage.get_value("pomelo","protos") )
@@ -246,12 +241,6 @@ func _initSocket(host,port):
 	if _connected:
 		_onopen()
 	return err
-	
-func init(host, port):
-	print("pomelo init")
-	#user 数据
-	return _initSocket(host,port)
-
 
 func _connect(host,port):
 	return socket.connect(host, port)
@@ -278,12 +267,22 @@ func notify(route,msg):
 func _sendMessage(reqId,route,msg):
 	if useCrypto:
 		return print("no imp crypto now")
-	msg = _encode(reqId,route,msg)
+	var type = message.TYPE_NOTIFY
+	if reqId:
+		type = message.TYPE_REQUEST
+	var compressRoute = 0
+	if _dict != null and _dict.has("route"):
+		route = _dict[route]
+		compressRoute = 1
+	msg = message.encode(reqId,type,compressRoute,route,msg)
 	var packet = package.encode(package.TYPE_DATA,msg)
 	_send(packet)
 	
 	
 func _send(msg):
+	print("send msg:",msg)
+	for i in range(msg.size()):
+		print(msg.get(i))
 	socket.put_partial_data(msg)
 	lastClientTick = OS.get_ticks_msec()
 
@@ -297,12 +296,21 @@ func _handshake(data):
 	if data.code != 200:
 		emit_signal("error","handshake fail.")
 		return
-	_handshakeInit(data)
+	print(data.to_json())
+	heartbeatInterval = 0
+	heartbeatTimeout = 0
+	if data.sys != null:
+		if data.sys.has("heartbeat"):
+			if data.sys.heartbeat !=0:
+				heartbeatInterval = data.sys.heartbeat*1000
+				heartbeatTimeout = heartbeatInterval*2
+	_initData(data)
 	var obj = package.encode(package.TYPE_HANDSHAKE_ACK);
 	_send(obj)
 	emit_signal("init",socket)
 
 func _onData(data):
+	print("ondata",data)
 	var msg = data
 	#if _decode:
 	msg = _decode(msg)
@@ -318,7 +326,9 @@ func _handlers(type,body):
 	if type == package.TYPE_HANDSHAKE:
 		_handshake(body)
 	elif type == package.TYPE_HEARTBEAT:
-		_heartbeat(body)
+		if not heartbeatInterval:
+			#servertick
+			return
 	elif type == package.TYPE_DATA:
 		_onData(body)
 	elif type == package.TYPE_KICK:
@@ -327,12 +337,16 @@ func _handlers(type,body):
 		pass
 
 func _processPackage(msgs):
+	print("process package")
 	if typeof(msgs) == TYPE_ARRAY:
 		for i in msgs:
 			var msg = msgs[i]
 			_handlers(msg.type,msg.body)
+	else:
+		_handlers(msgs.type,msgs.body)
 
 func _processMessage(msg):
+	print("process message",msg)
 	if not msg.id:
 		return emit_signal(msg.route,msg.body)
 	var cb = callbacks[msg.id]
@@ -343,32 +357,13 @@ func _processMessage(msg):
 	f.call_func(msg.body)
 	return
 
-func _deCompos(msg):
-	var route = msg.route
-	if msg.compressRoute:
-		if not abbrs[route]:
-			return {}
-		route = abbrs[route]
-		msg.route = abbrs[route]
-	if serverProtos and serverProtos[route]:
-		return protobuf.decode(route,msg.body)
-	else:
-		msg.parse_json(protocol.strdecode(msg.body))
-	return msg
-	
-
-func _handshakeInit(data):
-	if data.sys and data.sys.heartbeat:
-		heartbeatInterval = data.sys.heartbeat*1000
-		heartbeatTimeout = heartbeatInterval*2
-	else:
-		heartbeatInterval = 0
-		heartbeatTimeout = 0
-	_initData(data)
-
 func _initData(data):
-	print("aaaaaaaa",data)
-	if not data or not data.sys:
+	print("init data",data)
+	if data == null  or  data.sys == null:
+		return
+	if not data.sys.has("dict"):
+		return
+	if not data.sys.has("protos"):
 		return
 	_dict = data.sys["dict"]
 	var protos = data.sys.protos
