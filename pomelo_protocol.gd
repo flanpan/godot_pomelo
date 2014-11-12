@@ -20,9 +20,22 @@ class Package:
 	func _init(parent):
 		_parent = parent
 	
+	func encode_bak(type,body):
+		var length = 0
+		if body != null:
+			length = body.size()
+		var buffer = RawArray()
+		buffer.push_back(type)
+		buffer.push_back((length>>16)&0xff)
+		buffer.push_back((length>>8)&0xff)
+		buffer.push_back(length&0xff)
+		if body != null:
+			for i in range(body.size()):
+				buffer.push_back(body.get(i))
+	
 	func encode(type,body):
-		var length ;
-		if body:
+		var length 
+		if body != null:
 			length = body.size()
 		else:
 			length = 0
@@ -37,9 +50,11 @@ class Package:
 		index += 1
 		buffer[index] = length & 0xff
 		index += 1
-		if body:
-			_parent._copyArray(buffer,index,body,0,length)
+		if typeof(body) != null:
+			buffer = _parent._copyArray(buffer,index,body,0,length)
+
 		return buffer
+
 	
 	func decode(buffer):
 		var offset = 0
@@ -56,12 +71,12 @@ class Package:
 			length |= bytes[offset]
 			offset += 1
 			#length = length >> 0 # 无符号右移 >>>
-			length = abs(length) >> 0
+			length = abs(length)# >> 0
 			var body = null
 			if length:
 				body = RawArray()
 				body.resize(length)
-			_parent._copyArray(body,0,bytes,offset,length)
+			body = _parent._copyArray(body,0,bytes,offset,length)
 			offset += length
 			rs.push_back({"type":type,"body":body})
 		var res = rs
@@ -149,7 +164,7 @@ class Message:
 					if routeLen:
 						route = RawArray()
 						route.resize(routeLen)
-						_parent._copyArray(route,0,bytes,offset,routeLen)
+						route = _parent._copyArray(route,0,bytes,offset,routeLen)
 						route = _parent.strdecode(route)
 					else:
 						route = ""
@@ -157,7 +172,8 @@ class Message:
 		var bodyLen = bytesLen - offset
 		var body = RawArray()
 		body.resize(bodyLen)
-		_parent._copyArray(body,0,bytes,offset,bodyLen)
+		body = _parent._copyArray(body,0,bytes,offset,bodyLen)
+
 		return {"id":id,"type":type,"compressRoute":compressRoute,"route":route,"body":body}
 
 ###########
@@ -166,9 +182,11 @@ var message = Message.new(self)
 
 func _copyArray(dest,doffset,src,soffset,length):
 	for i in range(length):
-		dest[doffset] = src[soffset]
-		doffset += 1
-		soffset += 1
+		dest[doffset+i] = src[soffset+i]
+		#print(src[soffset])
+	#for i in range(dest.size()):
+	#	print(dest.get(i))
+	return dest
 
 func _msgHasId(type):
 	return type == message.TYPE_REQUEST || type == message.TYPE_RESPONSE
@@ -227,7 +245,7 @@ func _encodeMsgRoute(compressRoute,route,buffer,offset):
 	else:
 		if route:
 			buffer[offset] = route.lenth & 0xff
-			_copyArray(buffer,offset,route,0,route.length)
+			buffer = _copyArray(buffer,offset,route,0,route.length)
 			offset += route.length
 		else:
 			buffer[offset] = 0
@@ -235,17 +253,19 @@ func _encodeMsgRoute(compressRoute,route,buffer,offset):
 	return offset
 
 func _encodeMsgBody(msg,buffer,offset):
-	_copyArray(buffer,offset,msg,0,msg.size())
+	buffer = _copyArray(buffer,offset,msg,0,msg.size())
 	return offset + msg.size()
 
-func strencode(s):
+func strencode_old(s):
 	var byteArray = RawArray()
-	byteArray.resize(s.length *3)
+	byteArray.resize(s.length() *3)
 	var offset = 0
-	for i in range(s.length):
+	for i in range(s.length()):
 		var charCode = s.ord_at(i)
 		var codes = null
-		if charCode <= 0x7f:
+		if charCode <= 0x7f:#127
+			codes = [charCode]
+		elif charCode <= 0x7ff:#2047
 			codes = [0xc0|(charCode>>6),0x80|(charCode & 0x3f)]
 		else:
 			codes = [0xe0|(charCode>>12),0x80|((charCode & 0xfc0)>>6), 0x80|(charCode & 0x3f)]
@@ -254,11 +274,19 @@ func strencode(s):
 			offset += 1
 	var _buffer = RawArray()
 	_buffer.resize(offset)
-	_copyArray(_buffer,0,byteArray,0,offset)
+	_buffer = _copyArray(_buffer,0,byteArray,0,offset)
 	return _buffer
 
-	
+func strencode(s):
+	var raw = RawArray()
+	for i in range(s.length()):
+		raw.push_back(s.ord_at(i))
+	return raw
+
 func strdecode(buffer):
+	return buffer.get_string_from_utf8()
+	
+func strdecode_old(buffer):
 	var bytes = buffer#RawArray()
 	var array = RawArray()#[]
 	var offset = 0
@@ -275,7 +303,8 @@ func strdecode(buffer):
 			charCode = ((bytes[offset] & 0x0f)<<12) + ((bytes[offset+1] & 0x3f)<<6) + (bytes[offset+2] & 0x3f)
 			offset +=3
 		array.push_back(charCode)
+		#print(charCode)
 	#return String.fromCharCode.apply(null, array);
-	#return array.get_string_from_ascii()
-	return array.get_string_from_utf8()
+	return array.get_string_from_ascii()
+	#return array.get_string_from_utf8()
 

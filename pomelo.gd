@@ -6,8 +6,9 @@ var protobuf = load("res://pomelo_protobuf.gd").new()
 var protocol = load("res://pomelo_protocol.gd").new()
 var package = protocol.package
 var message = protocol.message
-var heartbeatInterval = 0
+var heartbeatInterval = 1000
 var heartbeatTimeout = 0
+var gapThreshold = 100
 var protoVersion
 var clientProtos
 var abbrs = {}
@@ -29,7 +30,9 @@ var state = ST_HEAD
 var headBuffer = RawArray()
 var lastServerTick = OS.get_ticks_msec()
 var lastClientTick = OS.get_ticks_msec()
-
+#var onMap = {}
+var signals = {}
+var callbacks = {}
 var routeMap = {}
 var handshakeBuffer = {
 	    sys= {
@@ -47,59 +50,45 @@ var routes = {}
 const ERR = 1
 var data
 
-var _reqId = 0
+func _init():
+	print("init pomelo")
+	headBuffer.resize(4)
+
 
 func _ready():
 	var err = localStorage.load("res://user_config.cfg")
-	print("load user config",err)
 	if err:
-		return print(err)
+		return print("load user config error. code:",err)
 	add_user_signal("error")
 	set_process(true)
+
+func on(event,instance,method):
+	connect(event,instance,method)
 	
-func request111(route,msg,obj,method):
-	if(not _connected):
-		print("pomelo have not connect.")
-	else:
-		if(routes[route]):
-			var robj = routes[route].obj
-			var rmethod = routes[route].method
-			if(robj == obj):
-				if(rmethod == method):
-					socket.put_partial_data(_string_to_raw_array(msg))
-		else:
-			routes[route] = {}
-			routes[route].obj = obj
-			routes[route].method = method
-			add_user_signal(route)
-			socket.put_partial_data(_string_to_raw_array(msg))
-
-func _string_to_raw_array(string):
-	var msg = string + data.HEAD_STR
-	var raw = RawArray()
-	var len = msg.length()
-	var i=0
-	while(i<len):
-		raw.push_back(msg.ord_at(i))
-		i=i+1
-	return raw
-
-
-# 循环
 func _process(delta):
 	var connected = socket.is_connected()
 	if(not connected):
 		return
-	#var obj = package.encode(package.TYPE_HEARTBEAT)
+	if (OS.get_ticks_msec() - lastServerTick) > (heartbeatInterval+gapThreshold):
+		print("server heartbeat timeout")
+		emit_signal("heartbeat timeout")
+		return disconnect()
+	
+	if(OS.get_ticks_msec() - lastClientTick >= heartbeatInterval):
+		var obj = package.encode(package.TYPE_HEARTBEAT)
+		_send(obj)
+	
 	var output = socket.get_partial_data(1024)
 	var errCode = output[0]
 	var outputData = output[1]
+	print(output)
 	if(errCode != 0):
 		return print( "receive ErrCode:" + str(errCode), ERR)
 	#var outStr = outputData.get_string_from_utf8()
 	#if(outStr == ""):
 	if(not outputData.size()):
 		return
+	print("outputData")
 	var chunk = outputData
 	var offset = 0
 	var end=chunk.size()
@@ -115,15 +104,17 @@ func _process(delta):
 func _checkTypeDate(data):
 	return data== package.TYPE_HANDSHAKE || data == package.TYPE_HANDSHAKE_ACK || data == package.TYPE_HEARTBEAT || data==package.TYPE_DATA || data==package.TYPE_KICK
 
-func _getBodySize(headBuffer):
+func _getBodySize():
 	var len = 0
 	for i in [1,2,3]:
 		if i>1:
 			len <<= 8
+		print(i,headBuffer.size())
 		len += headBuffer.get(i)#headBuffer.readUInt8(i)
 	return len
 
 func _readHead(data,offset):
+	print("_readHead")
 	var hlen = headSize - headOffset
 	var dlen = data.size() - offset
 	var len = min(hlen,dlen)
@@ -131,9 +122,10 @@ func _readHead(data,offset):
 	#data.copy(headBuffer,headOffset,offset,dend)
 	for i in range(len):
 		headBuffer.set(headOffset+i,data.get(offset+i))
+		print("set head buffer",headOffset+i,data.get(offset+i))
 	headOffset += len
 	if headOffset == headSize:
-		var size = _getBodySize(headBuffer)
+		var size = _getBodySize()
 		if size < 0:
 			return print("invalid body size.%d",size)
 		packageSize = size+headSize
@@ -146,6 +138,7 @@ func _readHead(data,offset):
 	return dend
 
 func _readBody(data,offset):
+	print("_readBody")
 	var blen = packageSize - packageOffset
 	var dlen = data.size() - offset
 	var len = min(blen,dlen)
@@ -201,19 +194,25 @@ func _encode(reqId,route,msg):
 func _heartbeat():
 	if not heartbeatInterval:
 		return
-	lastServerTick = OS.get_ticks_msec()
+	#lastServerTick = OS.get_ticks_msec()
 	
 	
 
 
 func _onopen():
-	var obj = package.encode(package.TYPE_HANDSHAKE,protocol.strencode(handshakeBuffer.to_json()))
+	var buf = protocol.strencode(handshakeBuffer.to_json())
+	var obj = package.encode(package.TYPE_HANDSHAKE,buf)
+	#for i in range(obj.size()):
+	#	print(obj.get(i))
 	_send(obj)
 
 func _onmessage(data):
+	lastServerTick = OS.get_ticks_msec()
+	print("onmessage",data)
 	_processPackage(package.decode(data))
-	if heartbeatTimeout:
-		nextHeartbeatTimeout = OS.get_ticks_msec() + heartbeatTimeout
+	#if heartbeatTimeout:
+	#	nextHeartbeatTimeout = OS.get_ticks_msec() + heartbeatTimeout
+	
 	
 func _onerror():
 	emit_signal("io-error")
@@ -266,6 +265,10 @@ func request(route,msg,obj,method):
 		return print("pomelo have not connect.")
 	reqId = reqId+1
 	_sendMessage(reqId,route,msg)
+	callbacks[reqId] = {}
+	callbacks[reqId].instance = obj
+	callbacks[reqId].f = method
+	routeMap[reqId] = route
 
 func notify(route,msg):
 	if not msg:
@@ -282,6 +285,7 @@ func _sendMessage(reqId,route,msg):
 	
 func _send(msg):
 	socket.put_partial_data(msg)
+	lastClientTick = OS.get_ticks_msec()
 
 func _handshake(data):
 	var res = {}
@@ -310,7 +314,7 @@ func _onKick(data):
 	emit_signal("onKick",data) 
 	
 
-func _hander(type,body):
+func _handlers(type,body):
 	if type == package.TYPE_HANDSHAKE:
 		_handshake(body)
 	elif type == package.TYPE_HEARTBEAT:
@@ -329,7 +333,15 @@ func _processPackage(msgs):
 			_handlers(msg.type,msg.body)
 
 func _processMessage(msg):
-	emit_signal(msg.route,msg.body)
+	if not msg.id:
+		return emit_signal(msg.route,msg.body)
+	var cb = callbacks[msg.id]
+	var f = FuncRef.new()
+	f.set_instance(cb.instance)
+	f.set_function(cb.f)
+	callbacks.erase(msg.id)
+	f.call_func(msg.body)
+	return
 
 func _deCompos(msg):
 	var route = msg.route
@@ -355,6 +367,7 @@ func _handshakeInit(data):
 	_initData(data)
 
 func _initData(data):
+	print("aaaaaaaa",data)
 	if not data or not data.sys:
 		return
 	_dict = data.sys["dict"]
