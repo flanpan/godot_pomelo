@@ -182,7 +182,6 @@ class Message:
 		var body = RawArray()
 		body.resize(bodyLen)
 		body = _parent._copyArray(body,0,bytes,offset,bodyLen)
-
 		return {"id":int(id),"type":int(type),"compressRoute":int(compressRoute),"route":route,"body":body}
 
 ###########
@@ -287,8 +286,7 @@ func strdecode_old(buffer):
 		else:
 			charCode = ((bytes[offset] & 0x0f)<<12) + ((bytes[offset+1] & 0x3f)<<6) + (bytes[offset+2] & 0x3f)
 			offset +=3
-		array.push_back(charCode)
-		#print(charCode)
+		array.push_back(int(charCode))
 	#return String.fromCharCode.apply(null, array);
 	return array.get_string_from_ascii()
 	#return array.get_string_from_utf8()

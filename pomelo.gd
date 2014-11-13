@@ -87,7 +87,6 @@ func _process(delta):
 	#if(outStr == ""):
 	if(not outputData.size()):
 		return
-	print("outputData")
 	var chunk = outputData
 	var offset = 0
 	var end=chunk.size()
@@ -113,7 +112,6 @@ func _getBodySize():
 	return len
 
 func _readHead(data,offset):
-	print("_readHead")
 	var hlen = headSize - headOffset
 	var dlen = data.size() - offset
 	var len = min(hlen,dlen)
@@ -138,7 +136,6 @@ func _readHead(data,offset):
 	return dend
 
 func _readBody(data,offset):
-	print("_readBody")
 	var blen = packageSize - packageOffset
 	var dlen = data.size() - offset
 	var len = min(blen,dlen)
@@ -147,7 +144,6 @@ func _readBody(data,offset):
 	for i in range(len):
 		packageBuffer.set(packageOffset+i,data.get(offset+i))
 	packageOffset += len
-	print("packageoffset:",packageOffset,"packageSize:",packageSize)
 	if packageOffset == packageSize:
 		var buffer = packageBuffer
 		_onmessage(buffer)
@@ -160,15 +156,6 @@ func _reset():
 	packageSize = 0
 	packageBuffer.resize(0)
 	state = ST_HEAD
-
-func _str2raw(string):
-	var len = string.length()
-	var raw = RawArray()
-	var i = 0
-	while(i<len):
-		raw.push_back(string.ord_at(i))
-		i = i + 1
-	return raw
 
 func _decode(data):
 	var msg = message.decode(data)
@@ -188,7 +175,8 @@ func _decode(data):
 		msg.body = protobuf.decode(route,msg.body)
 	else:
 		var tmp = {}
-		msg.body = tmp.parse_json(protocol.strdecode(msg.body))
+		tmp.parse_json(protocol.strdecode(msg.body))
+		msg.body = tmp
 	return msg
 
 
@@ -201,7 +189,6 @@ func _onopen():
 
 func _onmessage(data):
 	lastServerTick = OS.get_ticks_msec()
-	print("onmessage",data)
 	_processPackage(package.decode(data))
 	#if heartbeatTimeout:
 	#	nextHeartbeatTimeout = OS.get_ticks_msec() + heartbeatTimeout
@@ -221,7 +208,7 @@ func init(host, port):
 	#user 数据
 	#return _initSocket(host,port)
 	print("connect to %s:%d",host,port)
-	if(localStorage.get_value("pomelo","protos") and protoVersion==0):
+	if(localStorage.has_section_key("pomelo","protos") and protoVersion==0):
 		var protos = {}.parse_json(localStorage.get_value("pomelo","protos") )
 		if not protoVersion:
 			protoVersion = 0
@@ -286,7 +273,6 @@ func _sendMessage(reqId,route,msg):
 	
 	
 func _send(msg):
-	print("send msg:",msg)
 	#for i in range(msg.size()):
 	#	print(msg.get(i))
 	socket.put_partial_data(msg)
@@ -302,7 +288,6 @@ func _handshake(data):
 	if data.code != 200:
 		emit_signal("error","handshake fail.")
 		return
-	print(data.to_json())
 	heartbeatInterval = 0
 	heartbeatTimeout = 0
 	if data.sys != null:
@@ -316,7 +301,6 @@ func _handshake(data):
 	emit_signal("init",socket)
 
 func _onData(data):
-	print("ondata",data)
 	var msg = data
 	#if _decode:
 	msg = _decode(msg)
@@ -343,7 +327,6 @@ func _handlers(type,body):
 		pass
 
 func _processPackage(msgs):
-	print("process package")
 	if typeof(msgs) == TYPE_ARRAY:
 		for i in msgs:
 			var msg = msgs[i]
@@ -352,7 +335,6 @@ func _processPackage(msgs):
 		_handlers(msgs.type,msgs.body)
 
 func _processMessage(msg):
-	print("process message",msg)
 	if not msg.id:
 		return emit_signal(msg.route,msg.body)
 	var cb = callbacks[msg.id]
@@ -364,7 +346,6 @@ func _processMessage(msg):
 	return
 
 func _initData(data):
-	print("init data",data)
 	if data == null  or  data.sys == null:
 		return
 	if not data.sys.has("dict"):

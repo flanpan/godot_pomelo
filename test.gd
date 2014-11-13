@@ -7,8 +7,6 @@ var pomelo
 
 
 func _ready():
-	var t = {}
-	print(t.to_json())
 	pomelo = get_node("/root/global").pomelo
 	print(pomelo,host,port)
 
@@ -27,6 +25,7 @@ func _on_Button_pressed():
 
 func _on_query_entry(msg):
 	print(msg)
+	set_text(msg.to_json())
 	
 func _on_errror(msg):
 	print(msg)
