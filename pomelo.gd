@@ -100,7 +100,7 @@ func _process(delta):
 		if state==ST_BODY:
 			offset = _readBody(chunk,offset)
 
-func _checkTypeDate(data):
+func _checkTypeData(data):
 	return data== package.TYPE_HANDSHAKE || data == package.TYPE_HANDSHAKE_ACK || data == package.TYPE_HEARTBEAT || data==package.TYPE_DATA || data==package.TYPE_KICK
 
 func _getBodySize():
@@ -158,7 +158,7 @@ func _reset():
 	headOffset = 0
 	packageOffset = 0
 	packageSize = 0
-	packageBuffer = null
+	packageBuffer.resize(0)
 	state = ST_HEAD
 
 func _str2raw(string):
@@ -173,8 +173,8 @@ func _str2raw(string):
 func _decode(data):
 	var msg = message.decode(data)
 	if msg.id >0:
-		msg.route = routeMap[msg.id]
-		routeMap.erase(msg.id)
+		msg.route = routeMap[int(msg.id)]
+		routeMap.erase(int(msg.id))
 		if not msg.route:
 			return
 	#msg.body = _deCompose(msg)
@@ -184,7 +184,7 @@ func _decode(data):
 			return {}
 		route = abbrs[route]
 		msg.route = abbrs[route]
-	if serverProtos and serverProtos[route]:
+	if serverProtos!=null and serverProtos.has(route):
 		msg.body = protobuf.decode(route,msg.body)
 	else:
 		var tmp = {}
@@ -270,6 +270,12 @@ func _sendMessage(reqId,route,msg):
 	var type = message.TYPE_NOTIFY
 	if reqId:
 		type = message.TYPE_REQUEST
+	
+	if clientProtos!=null and clientProtos.has(route):
+		msg = protobuf.encode(route,msg)
+	else:
+		msg = protocol.strencode(msg.to_json())
+	
 	var compressRoute = 0
 	if _dict != null and _dict.has("route"):
 		route = _dict[route]
@@ -281,8 +287,8 @@ func _sendMessage(reqId,route,msg):
 	
 func _send(msg):
 	print("send msg:",msg)
-	for i in range(msg.size()):
-		print(msg.get(i))
+	#for i in range(msg.size()):
+	#	print(msg.get(i))
 	socket.put_partial_data(msg)
 	lastClientTick = OS.get_ticks_msec()
 

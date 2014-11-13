@@ -114,21 +114,27 @@ class Message:
 					if route.size() > 255:
 						return print("route maxLength is overflow.")
 					msgLen += route.size()
-		if msg:
-			msgLen += msg.length()
+		if msg != null:
+			msgLen += msg.size()
 		var buffer = RawArray()
 		buffer.resize(msgLen)
 		var offset = 0
-		offset = _parent._encodeMsgFlag(type,compressRoute,buffer,offset)
+		var res = _parent._encodeMsgFlag(type,compressRoute,buffer,offset)
+		offset = res[0]
+		buffer = res[1]
 		if _parent._msgHasId(type):
-			offset = _parent._encodeMsgId(id,buffer,offset)
+			var res = _parent._encodeMsgId(id,buffer,offset)
+			offset = res[0]
+			buffer = res[1]
 		if _parent._msgHasRoute(type):
-			offset = _parent._encodeMsgRoute(compressRoute,route,buffer,offset)
-		if msg:
+			var res = _parent._encodeMsgRoute(compressRoute,route,buffer,offset)
+			offset = res[0]
+			buffer = res[1]
+		if msg != null:
 			# encode msg body
-			for i in range(msg.length()):
-				buffer[offset+i] = msg.ord_at(i)
-			offset += msg.length()
+			for i in range(msg.size()):
+				buffer[offset+i] = msg.get(i)
+			offset += msg.size()
 		return buffer
 
 	func decode(buffer):
@@ -141,7 +147,7 @@ class Message:
 		offset += 1
 		var compressRoute = flag & _parent.MSG_COMPRESS_ROUTE_MASK
 		var type = (flag >> 1) & _parent.MSG_TYPE_MASK
-		if _parent.msgHasId(type):
+		if _parent._msgHasId(type):
 			var m = int(bytes[offset])
 			var i = 0
 			
@@ -177,7 +183,7 @@ class Message:
 		body.resize(bodyLen)
 		body = _parent._copyArray(body,0,bytes,offset,bodyLen)
 
-		return {"id":id,"type":type,"compressRoute":compressRoute,"route":route,"body":body}
+		return {"id":int(id),"type":int(type),"compressRoute":int(compressRoute),"route":route,"body":body}
 
 ###########
 var package = Package.new(self)
@@ -215,7 +221,7 @@ func _encodeMsgFlag(type,compressRoute,buffer,offset):
 	else:
 		tmp = 0
 	buffer[offset] = (type << 1) | tmp
-	return offset+MSG_FLAG_BYTES
+	return [offset+MSG_FLAG_BYTES,buffer]
 
 func _encodeMsgId(id,buffer,offset):
 	var tmp
@@ -235,7 +241,7 @@ func _encodeMsgId(id,buffer,offset):
 		buffer[offset] = tmp
 		offset += 1
 		id = next
-	return offset
+	return [offset,buffer]
 
 func _encodeMsgRoute(compressRoute,route,buffer,offset):
 	if compressRoute:
@@ -248,12 +254,13 @@ func _encodeMsgRoute(compressRoute,route,buffer,offset):
 	else:
 		if route != null:
 			buffer[offset] = route.size() & 0xff
+			offset += 1
 			buffer = _copyArray(buffer,offset,route,0,route.size())
 			offset += route.size()
 		else:
 			buffer[offset] = 0
 			offset += 1
-	return offset
+	return [offset,buffer]
 
 func strencode(s):
 	var raw = RawArray()

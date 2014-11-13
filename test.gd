@@ -7,6 +7,8 @@ var pomelo
 
 
 func _ready():
+	var t = {}
+	print(t.to_json())
 	pomelo = get_node("/root/global").pomelo
 	print(pomelo,host,port)
 
@@ -20,7 +22,7 @@ func _ready():
 func _on_Button_pressed():
 	set_text(get_text()+"a")
 	#pomelo._send("1")
-	pomelo.request("gate.gateHandler.queryEntry","aaa",self,"_on_query_entry")
+	pomelo.request("gate.gateHandler.queryEntry",{},self,"_on_query_entry")
 	
 
 func _on_query_entry(msg):
