@@ -7,6 +7,18 @@ var pomelo
 
 
 func _ready():
+	var raw = RawArray()
+	raw.push_back(0xe5)
+	raw.push_back(0x93)
+	raw.push_back(0x88)
+	var s1 = raw.get_string_from_utf8()
+	var s2 = raw.get_string_from_ascii()
+	
+	print(s1.ord_at(0))
+	print(typeof(s1),typeof(s2))
+	
+
+
 	pomelo = get_node("/root/global").pomelo
 	print(pomelo,host,port)
 
