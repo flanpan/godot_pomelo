@@ -1,7 +1,7 @@
 extends Button
 export(String) var host = "127.0.0.1"
 
-export(int) var port = 11901
+export(int) var port = 10001
 
 var pomelo
 
@@ -38,26 +38,37 @@ func test_ref():
 	print(tt.a)
 
 func _ready():
-	test_ref()
 	pomelo = get_node("/root/global").pomelo
-	print(pomelo,host,port)
 
 	pomelo.init(host,port)
 	pomelo.on("error",self,"_on_errror")
 	#print(pomelo._connect(host,port))
 	#print(pomelo.socket.is_connected())
-	var root = get_scene().get_root()
+	var root = get_tree().get_root()
 	pass
 
 func _on_Button_pressed():
 	set_text(get_text()+"a")
 	#pomelo._send("1")
-	pomelo.request("gate.gateHandler.queryEntry",{},self,"_on_query_entry")
+	pomelo.request("connector.entryHandler.entry",{
+	
+	token='a67a3ef88faef78184c049785453908fd51732f85276b9d11f71fcf46b276a4e446124d175561f7ddcdfa25e5e3a1f65'
+	
+	},self,"_on_query_entry")
 	
 
 func _on_query_entry(msg):
 	print(msg)
 	set_text(msg.to_json())
+	pomelo.request('game.gameHandler.entryGame',{roleName='robot1'},self,'_onstart')
 	
 func _on_errror(msg):
 	print(msg)
+	
+func _onstart(msg):
+	var cfg = ConfigFile.new()
+	cfg.load('res://user_config.cfg')
+	cfg.set_value("pomelo","aaa",msg.to_json())
+	cfg.save('res://aaa')
+	print('onentrygame')
+	#print(msg.to_json())

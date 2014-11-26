@@ -72,28 +72,104 @@ class Encoder:
 		return true
 
 	func encodeMsg(buffer,offset,protos,msg):
+		var tmp
 		for name in msg:
 			if protos.has(name):
 				var proto = protos[name]
 				if proto.option == "required" || proto.option == "optional":
-					offset = writeBytes(buffer,offset,encodeTag(proto.type,proto.tag))
-					offset = encodeProp(msg[name],proto.type,offset,buffer,protos)
+					tmp = writeBytes(buffer,offset,encodeTag(proto.type,proto.tag))
+					offset = tmp.offset
+					buffer = tmp.buffer
+					tmp = encodeProp(msg[name],proto.type,offset,buffer,protos)
+					offset = tmp.offset
+					buffer = tmp.buffer
 				elif proto.option == "repeated":
 					if msg[name].size() >0:
-						offset = encodeArray(msg[name],proto,offset,buffer,protos)
-		return offset
+						tmp = encodeArray(msg[name],proto,offset,buffer,protos)
+						offset = tmp.offset
+						buffer = tmp.buffer
+		return {offset=offset,buffer=buffer}
 
 	func encodeProp(value,type,offset,buffer,protos):
-		pass
+		var tmp
+		if type == 'uInt32':
+			tmp = writeBytes(buffer,offset,codec.encodeUInt32(value))
+			offset = tmp.offset
+			buffer = tmp.buffer
+		elif type == 'int32' || type == 'sInt32':
+			tmp = writeBytes(buffer,offset,codec.encodeSInt32(value))
+			offset = tmp.offset
+			buffer = tmp.buffer
+		elif type == 'float':
+			tmp = writeBytes(buffer,offset,codec.encodeFloat(value))
+			offset += 4
+			buffer = tmp.buffer
+		elif type == 'double':
+			tmp = writeBytes(buffer,offset,codec.encodeDouble(value))
+			offset += 8
+			buffer = tmp.buffer
+		elif type == 'string':
+			var length = codec.byteLength(value)
+			tmp = writeBytes(buffer,offset,codec.encodeUInt32(length))
+			offset = tmp.offset
+			buffer = tmp.buffer
+			codec.encodeStr(buffer,offset,value)
+			offset += length
+		else:
+			var message
+			if protos.__message.has(type):
+				message = protos.__message[type]
+			elif self.protos.has('message '+type):
+				message = self.protos['message '+type]
+			if message != null:
+				var tmpBuffer = RawArray()
+				tmpBuffer.resize(codec.byteLength(value.to_json())*2)
+				var length = 0
+				tmp = encodeMsg(tmpBuffer,length,message,value)
+				length = tmp.offset
+				buffer = tmp.buffer
+				tmp = writeBytes(buffer,offset,codec.encodeUInt32(length))
+				offset = tmp.offset
+				buffer = tmp.buffer
+				for i in range(length):
+					buffer[offset] = tmpBuffer[i]
+					offset += 1
+		return {buffer=buffer,offset=offset}
 
 	func encodeArray(array,proto,offset,buffer,protos):
-		pass
+		var i = 0
+		var tmp
+		if util.isSimpleType(proto.type):
+			tmp = writeBytes(buffer,offset,encodeTag(proto.type,proto.tag))
+			offset = tmp.offset
+			buffer = tmp.buffer
+			tmp = writeBytes(buffer,offset,codec.encodeUInt32(array.size()))
+			offset = tmp.offset
+			buffer = tmp.buffer
+			for i in range(array.size()):
+				tmp = encodeProp(array[i],proto.type,offset,buffer)
+				offset = tmp.offset
+				buffer = tmp.buffer
+		else:
+			for i in range(array.size()):
+				tmp = writeBytes(buffer,offset,encodeTag(proto.type,proto.tag))
+				offset = tmp.offset
+				buffer = tmp.buffer
+				tmp = encodeProp(array[i],proto.type,offset,buffer,protos)
+				offset = tmp.offset
+				buffer = tmp.buffer
+		return offset
 
 	func writeBytes(buffer,offset,bytes):
-		pass
+		for i in range(bytes.size()):
+			buffer[offset] = bytes[i]
+			offset += 1
+		return {buffer=buffer,offset=offset}
 
 	func encodeTag(type,tag):
-		var value = constant[type]||2
+		var value = 2
+		if constant.has(type):
+			value = constant[type]
 		return codec.encodeUInt32((tag<<3)|value)
 
 class Decoder:
@@ -114,41 +190,100 @@ class Decoder:
 		if(self.protos == null):
 			self.protos = {}
 
-	func decode(key,msg):
-		pass
+	func setProtos(protos):
+		if protos == null:
+			self.protos = protos
+	
+	func decode(route,buf):
+		buffer = buf
+		offset = 0
+		
+		if protos.has(route):
+			var proto = protos[route]
+			return decodeMsg({},proto,buffer.size())
+		return null
 
 	func decodeMsg(msg,protos,length):
-		pass
+		while offset<length:
+			var head = getHead()
+			var type = head.type
+			var tag = head.tag
+
+			var name = protos.__tags[str(tag)]
+			var option = protos[name].option
+			if option == "optional" || option == "required":
+				msg[name] = decodeProp(protos[name].type,protos)
+				#print('decodeMsg name:',name,' type: ',protos[name].type,' ->',msg[name])
+			elif option == "repeated":
+				if not msg.has(name):
+					msg[name] = []
+				msg[name] = decodeArray(msg[name],protos[name].type,protos)
+		return msg
+
+	func isFinish(msg,protos):
+		return (!protos.__tags[peekHead().tag])
+	
 
 	func getHead():
-		pass
+		var bytes = getBytes()
+		var tag = codec.decodeUInt32(bytes)
+		return {type=tag&0x7,tag=tag>>3}
 
 	func peekHead():
-		pass
+		var tag = codec.decodeUInt32(peekBytes())
+		return {type = tag&0x7,tag = tag>>3}
 
-	func decodeProp(type,protos):
-		pass
+	func decodeProp(type,protos=null):
+		if type == 'uInt32':
+			return codec.decodeUInt32(getBytes())
+		elif type == 'int32' or type == 'sInt32':
+			return codec.decodeSInt32(getBytes())
+		elif type == 'float':
+			var f = codec.decodeFloat(buffer,offset)
+			offset += 4
+			return f
+		elif type == 'double':
+			var d = codec.decodeDouble(buffer,offset)
+			offset += 8
+			return d
+		elif type == 'string':
+			var length = codec.decodeUInt32(getBytes())
+			var s = codec.decodeStr(buffer,offset,length)
+			offset += length
+			return s
+		else:
+			var message = null
+			if protos != null:
+				if protos.__messages.has(type):
+					message = protos.__messages[type]
+				elif self.protos.has('message '+type):
+					message = self.protos['message '+type]
+			if message != null:
+				var length = codec.decodeUInt32(getBytes())
+				var msg = {}
+				msg = decodeMsg(msg,message,offset+length)
+				return msg
 
 	func decodeArray(array,type,protos):
 		if util.isSimpleType(type):
 			var length = codec.decodeUInt32(getBytes())
-			for i in length:
-				array.push(decodeProp(type))
+			for i in range(length):
+				array.push_back(decodeProp(type))
 		else:
-			array.push(decodeProp(type,protos))
+			array.push_back(decodeProp(type,protos))
 		return array
 
-	func getBytes(flag):
+	func getBytes(flag=false):
 		var bytes = []
 		var pos = offset
-		flag = flag || false
+		flag = flag# || false
 		var b
 		b = buffer[pos]
-		bytes.push(b)
+		bytes.push_back(b)
 		pos+=1
 		while b>= 128:
 			b = buffer[pos]
-			bytes.push(b)
+			bytes.push_back(b)
 			pos+=1
 		if not flag:
 			offset = pos
@@ -198,7 +333,7 @@ class Codec:
 		var n = 0
 		for i in range(bytes.size()):
 			var m = int(bytes[i])
-			n = n+(m&0x7f)*pow(2,(7*i))
+			n = n+(m&0x7f)*int(pow(2,(7*i)))
 			if m<128:
 				return n
 		return n
@@ -257,7 +392,7 @@ class Codec:
 			else:
 				code = ((bytes[offset]&0x0f)<<12) + ((bytes[offset+1]&0x3f)<<6) + (bytes[offset+2]&0x3f)
 				offset += 3
-			array.push(code)
+			array.push_back(code)
 		return array.get_string_from_utf8()
 
 	func byteLength(s):
@@ -298,5 +433,6 @@ func encode(key,msg):
 	return encoder.encode(key,msg)
 	
 func decode(key,msg):
+	#print('protobuf decode route:',key,', msg: ',msg.size())
 	return decoder.decode(key,msg)
 	

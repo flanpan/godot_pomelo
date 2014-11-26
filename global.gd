@@ -27,7 +27,7 @@ func _ready():
 	# get the current scene
 	# it is always the last child of root,
 	# after the autoloaded nodes
-	var root = get_scene().get_root()
+	var root = get_tree().get_root()
 	#current_scene = root.get_child( root.get_child_count() -1 )
 	#current_scene.add_child(pomelo)
 	#for i in range(root.get_child_count()):

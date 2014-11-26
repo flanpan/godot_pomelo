@@ -82,7 +82,7 @@ func _process(delta):
 	var outputData = output[1]
 	#print(output)
 	if(errCode != 0):
-		return print( "receive ErrCode:" + str(errCode), ERR)
+		return print( "receive ErrCode:" + str(errCode)+"|||", ERR)
 	#var outStr = outputData.get_string_from_utf8()
 	#if(outStr == ""):
 	if(not outputData.size()):
@@ -90,6 +90,7 @@ func _process(delta):
 	var chunk = outputData
 	var offset = 0
 	var end=chunk.size()
+	#print('recv data size ',end)
 	if state==ST_HEAD and packageBuffer == null and not _checkTypeData(chunk[0]):
 		print("invalid head message")
 		return
@@ -157,26 +158,33 @@ func _reset():
 	packageBuffer.resize(0)
 	state = ST_HEAD
 
+func _deCompose(msg):
+	var route = str(msg.route)
+	if msg.compressRoute:
+		if not abbrs.has(route):
+			#print('aaaaaaaaaa',typeof(route),abbrs.to_json())
+			return {}
+		route = abbrs[route]
+		msg.route = abbrs[route]
+	if serverProtos!=null and serverProtos.has(route):
+		return protobuf.decode(route,msg.body)
+	else:
+		var tmp = {}
+		tmp.parse_json(protocol.strdecode(msg.body))
+		return tmp
+	return msg
+
 func _decode(data):
+	#print('_decode 0:',data.size())
 	var msg = message.decode(data)
+	#print('_decode 1: ',msg.to_json())
 	if msg.id >0:
 		msg.route = routeMap[int(msg.id)]
 		routeMap.erase(int(msg.id))
 		if not msg.route:
 			return
-	#msg.body = _deCompose(msg)
-	var route = msg.route
-	if msg.compressRoute:
-		if not abbrs[route]:
-			return {}
-		route = abbrs[route]
-		msg.route = abbrs[route]
-	if serverProtos!=null and serverProtos.has(route):
-		msg.body = protobuf.decode(route,msg.body)
-	else:
-		var tmp = {}
-		tmp.parse_json(protocol.strdecode(msg.body))
-		msg.body = tmp
+	msg.body = _deCompose(msg)
+	#print('_decode 2: ',msg.to_json())
 	return msg
 
 
@@ -207,7 +215,7 @@ func init(host, port):
 	print("pomelo init")
 	#user 数据
 	#return _initSocket(host,port)
-	print("connect to %s:%d",host,port)
+	print("connect to",host,':',port)
 	if(localStorage.has_section_key("pomelo","protos") and protoVersion==0):
 		var protos = {}.parse_json(localStorage.get_value("pomelo","protos") )
 		if not protoVersion:
@@ -335,8 +343,9 @@ func _processPackage(msgs):
 		_handlers(msgs.type,msgs.body)
 
 func _processMessage(msg):
-	if not msg.id:
-		return emit_signal(msg.route,msg.body)
+	#print(msg.to_json())
+	if not msg.has('id') or not msg.id:
+		return emit_signal(str(msg.route),msg.body)
 	var cb = callbacks[msg.id]
 	var f = FuncRef.new()
 	f.set_instance(cb.instance)
@@ -354,25 +363,25 @@ func _initData(data):
 		return
 	_dict = data.sys["dict"]
 	var protos = data.sys.protos
-	if _dict:
+	if _dict != null:
 		abbrs = {}
 		for route in _dict:
 			abbrs[_dict[route]] = route
-	if protos:
+	if protos != null :
 		if protos.version:
 			protoVersion = protos.version
 		else:
 			protoVersion = 0
-		if protos.server:
+		if protos.server != null:
 			serverProtos = protos.server
 		else:
 			serverProtos = {}
-		if protos.client:
+		if protos.client != null:
 			clientProtos = protos.client
 		else:
 			clientProtos = {}
-		if protobuf:
+		if protobuf != null:
 			var d = {encoderProtos=protos.client,decoderProtos=protos.server}
 			protobuf.init(d)
 		localStorage.set_value("pomelo","protos",protos.to_json())
-	localStorage.save()
+	localStorage.save('res://user_config.cfg')
