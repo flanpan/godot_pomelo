@@ -2,19 +2,21 @@ extends Node
 
 var socket = StreamPeerTCP.new()
 var _connected = false
+var isHandshaked = false
 var protobuf = load("res://pomelo_protobuf.gd").new() 
 var protocol = load("res://pomelo_protocol.gd").new()
 var package = protocol.package
 var message = protocol.message
 var heartbeatInterval = 1000
-var heartbeatTimeout = 2000
 var gapThreshold = 100
+var lastServerTick = OS.get_ticks_msec()
+var isClientTicked = false
+
 var protoVersion
 var clientProtos
 var abbrs = {}
 var serverProtos = {}
 var _dict = {}
-var nextHeartbeatTimeout
 var reqId = 0
 
 const ST_HEAD = 1
@@ -28,9 +30,7 @@ var packageSize = 0
 var packageBuffer = RawArray()
 var state = ST_HEAD
 var headBuffer = RawArray()
-var lastServerTick = OS.get_ticks_msec()
-var lastClientTick = OS.get_ticks_msec()
-#var onMap = {}
+
 var signals = {}
 var callbacks = {}
 var routeMap = {}
@@ -46,8 +46,6 @@ var rsa #window.rsa
 var localStorage = ConfigFile.new()
 var useCrypto
 var routes = {}
-
-const ERR = 1
 var data
 
 func _ready():
@@ -56,6 +54,7 @@ func _ready():
 	if err:
 		return print("load user config error. code:",err)
 	add_user_signal("error")
+	add_user_signal("io-error")
 	set_process(true)
 
 func on(event,instance,method):
@@ -65,24 +64,26 @@ func _process(delta):
 	var connected = socket.is_connected()
 	if(not connected):
 		return
-	if (OS.get_ticks_msec() - lastServerTick) > (heartbeatInterval+gapThreshold):
-		#print("server heartbeat timeout")
-		#emit_signal("heartbeat timeout")
-		#return disconnect()
-		pass
+	if isHandshaked and ((OS.get_ticks_msec() - lastServerTick) > (heartbeatInterval*2+gapThreshold)):
+		print('heartbeat timeout.')
+		emit_signal('heartbeat timeout')
+		disconnect()
+		#lastServerTick = OS.get_ticks_msec()
 	
-	if(OS.get_ticks_msec() - lastClientTick >= heartbeatInterval):
-		#print("client heart beat.")
-		#var obj = package.encode(package.TYPE_HEARTBEAT)
-		#_send(obj)
-		pass
+	if isHandshaked and (OS.get_ticks_msec() - lastServerTick >= heartbeatInterval):
+		if not isClientTicked:
+			var obj = package.encode(package.TYPE_HEARTBEAT)
+			_send(obj)
+			isClientTicked = true
+			print('发送心跳')
 	
 	var output = socket.get_partial_data(1024)
 	var errCode = output[0]
 	var outputData = output[1]
 	#print(output)
 	if(errCode != 0):
-		return print( "receive ErrCode:" + str(errCode)+"|||", ERR)
+		return _onerror(errCode)
+		#return print( "receive ErrCode:" + str(errCode)+"|||")
 	#var outStr = outputData.get_string_from_utf8()
 	#if(outStr == ""):
 	if(not outputData.size()):
@@ -196,14 +197,13 @@ func _onopen():
 	_send(obj)
 
 func _onmessage(data):
-	lastServerTick = OS.get_ticks_msec()
 	_processPackage(package.decode(data))
 	#if heartbeatTimeout:
 	#	nextHeartbeatTimeout = OS.get_ticks_msec() + heartbeatTimeout
 	
 	
-func _onerror():
-	emit_signal("io-error")
+func _onerror(code = null):
+	emit_signal("io-error",code)
 	print("socket error.")
 	
 func _onclose():
@@ -243,6 +243,7 @@ func _connect(host,port):
 func disconnect():
 	_connected = false
 	socket.disconnect()
+	_onclose()
 
 func request(route,msg,obj,method):
 	if(not _connected):
@@ -284,7 +285,6 @@ func _send(msg):
 	#for i in range(msg.size()):
 	#	print(msg.get(i))
 	socket.put_partial_data(msg)
-	lastClientTick = OS.get_ticks_msec()
 
 func _handshake(data):
 	var res = {}
@@ -296,13 +296,12 @@ func _handshake(data):
 	if data.code != 200:
 		emit_signal("error","handshake fail.")
 		return
-	heartbeatInterval = 0
-	heartbeatTimeout = 0
 	if data.sys != null:
 		if data.sys.has("heartbeat"):
 			if data.sys.heartbeat !=0:
 				heartbeatInterval = data.sys.heartbeat*1000
-				heartbeatTimeout = heartbeatInterval*2
+				print('set hartbeatInterval:',heartbeatInterval)
+				#heartbeatTimeout = heartbeatInterval*2
 	_initData(data)
 	var obj = package.encode(package.TYPE_HANDSHAKE_ACK);
 	_send(obj)
@@ -323,9 +322,11 @@ func _onKick(data):
 func _handlers(type,body):
 	if type == package.TYPE_HANDSHAKE:
 		_handshake(body)
+		isHandshaked = true
 	elif type == package.TYPE_HEARTBEAT:
-		if not heartbeatInterval:
-			#servertick
+		if heartbeatInterval != 0:
+			lastServerTick = OS.get_ticks_msec()
+			isClientTicked = false
 			return
 	elif type == package.TYPE_DATA:
 		_onData(body)

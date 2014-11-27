@@ -3,6 +3,7 @@ extends Node
 
 var current_scene = null
 var pomelo  = load("res://pomelo.gd").new()
+var httpClient = load('res://httpClient.gd')
 
 func goto_scene(scene):
 	#load new scene

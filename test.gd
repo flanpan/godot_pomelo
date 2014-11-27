@@ -1,9 +1,10 @@
-extends Button
+extends Panel
 export(String) var host = "127.0.0.1"
 
 export(int) var port = 10001
 
 var pomelo
+var httpClient 
 
 func test_utf8():
 	var raw = RawArray()
@@ -38,8 +39,13 @@ func test_ref():
 	print(tt.a)
 
 func _ready():
+	var b = Marshalls.variant_to_base64('aaa')
+	print(b)
+	print(Marshalls.base64_to_variant(b))
+	
 	pomelo = get_node("/root/global").pomelo
-
+	httpClient = get_node("/root/global").httpClient
+	
 	pomelo.init(host,port)
 	pomelo.on("error",self,"_on_errror")
 	#print(pomelo._connect(host,port))
@@ -47,7 +53,7 @@ func _ready():
 	var root = get_tree().get_root()
 	pass
 
-func _on_Button_pressed():
+func _on_Button_1_pressed():
 	set_text(get_text()+"a")
 	#pomelo._send("1")
 	pomelo.request("connector.entryHandler.entry",{
@@ -72,3 +78,10 @@ func _onstart(msg):
 	cfg.save('res://aaa')
 	print('onentrygame')
 	#print(msg.to_json())
+
+func _on_Button_2_pressed():
+	httpClient.post('192.168.3.56',3001,'/login',{},{instance=self,f='_button2rep'})
+	
+func _button2rep(data):
+	#get_node('Button2').set_text(data)
+	print(data)
