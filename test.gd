@@ -77,11 +77,13 @@ func _onstart(msg):
 	cfg.set_value("pomelo","aaa",msg.to_json())
 	cfg.save('res://aaa')
 	print('onentrygame')
-	#print(msg.to_json())
+	#print(msg.to_json()
 
 func _on_Button_2_pressed():
-	httpClient.post('192.168.3.56',3001,'/login',{},{instance=self,f='_button2rep'})
+	#httpClient.post('192.168.3.56',3001,'/login',{},{instance=self,f='_button2rep'})
+	httpClient.post('http://114.215.138.238',3003,'/update/project.manifest',{},{instance=self,f='_button2rep'})
 	
 func _button2rep(data):
 	#get_node('Button2').set_text(data)
+	print('#################################')
 	print(data)
